@@ -46,7 +46,6 @@ int main(int argc, char *argv[]) {
     gdk_threads_enter();
 
     gtk_init(&argc, &argv);
-    
     /* create main window */
     GtkBuilder * builder;
     builder = gtk_builder_new();
@@ -66,6 +65,13 @@ int main(int argc, char *argv[]) {
     // connect server
     button = gtk_builder_get_object(builder,"btn_connect_sv");
     g_signal_connect(button,"clicked",G_CALLBACK(connect_sv),"Nhap IP");
+    // Thạch, connect host
+    button = gtk_builder_get_object(builder,"btn_connect_host");
+    g_signal_connect(button,"clicked",G_CALLBACK(connect_host),"Nhap IP");
+
+    // connect server
+    button = gtk_builder_get_object(builder,"btn_connect_sv");
+    g_signal_connect(button,"clicked",G_CALLBACK(connect_sv),"Thành công");
 
     //quit
     button = gtk_builder_get_object(builder,"btn_quit");
@@ -84,8 +90,7 @@ int main(int argc, char *argv[]) {
     g_object_unref (provider);
    
     printf("day la socket %d\n",(int)sockfd );
-    make_client(window,"127.0.0.1");
-
+    // make_client(window,"127.0.0.1");
     gtk_main();
     close(sockfd);
     /* Release gtk's global lock */
@@ -118,29 +123,59 @@ static void create_sv(GtkWindow *parent, gchar *message) {
 	gtk_widget_show_all(dialog);
 }
 
-
-static void connect_sv(GtkWindow *parent, gchar *message) {
+// Thạch
+static void connect_host(GtkWindow *parent, gchar *message) {
     GtkWidget *dialog, *label, *content_area, *text_entry, *button;
     GtkDialogFlags flags;
-    flags = GTK_DIALOG_DESTROY_WITH_PARENT;    
+    flags = GTK_DIALOG_DESTROY_WITH_PARENT;   
+    // Get all host can connect
+    char allHost[BUF_SIZE];
+    char varible[500];
+    char header[4];
+    int a = send1MessageToBigServer("CNTH   "); 
+    int ret = recvfrom(a, allHost, BUF_SIZE, 0, NULL, NULL);
+    char mes[500] = "Các host: \n";
+    sscanf(allHost, "%s %s", header, varible);
+    printf("%s\n",varible);
+    close(a);
+    strcpy(mes + strlen(mes), varible);
+    //
 
     dialog = gtk_dialog_new();
-    //player_color = 1;
-    gtk_window_set_title(GTK_WINDOW(dialog),"Connect to a server... ");
+    player_color = 1;
+    gtk_window_set_title(GTK_WINDOW(dialog),"Connect to a host... ");
     content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
-    label = gtk_label_new(message);
+    label = gtk_label_new(mes);
     text_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY (text_entry),"127.0.0.1");
     g_signal_connect_swapped(dialog,"response", G_CALLBACK(gtk_widget_destroy),dialog);
 
     button = gtk_button_new_with_label("OK");
-    g_signal_connect(G_OBJECT(button),"clicked",G_CALLBACK(make_client),gtk_entry_get_text(GTK_ENTRY (text_entry)));
+    g_signal_connect(G_OBJECT(button),"clicked",G_CALLBACK(make_host),gtk_entry_get_text(GTK_ENTRY (text_entry)));
+    gtk_container_add(GTK_CONTAINER(content_area),label);
+    gtk_container_add(GTK_CONTAINER(content_area),text_entry);
+    gtk_container_add(GTK_CONTAINER(content_area),button);
+    isServer = 0;
+    player_color = 1;
+    gtk_widget_show_all(dialog);
+}
+
+static void connect_sv(GtkWindow *parent, gchar *message) {
+    GtkWidget *dialog, *label, *content_area, *button;
+    GtkDialogFlags flags;
+    flags = GTK_DIALOG_DESTROY_WITH_PARENT;    
+
+    dialog = gtk_dialog_new();
+    gtk_window_set_title(GTK_WINDOW(dialog),"Connect to a server... ");
+    content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
+    label = gtk_label_new(message);
+    g_signal_connect_swapped(dialog,"response", G_CALLBACK(gtk_widget_destroy),dialog);
+
+    button = gtk_button_new_with_label("OK");
+    g_signal_connect(G_OBJECT(button),"clicked",G_CALLBACK(make_client),"Abc");
 	gtk_container_add(GTK_CONTAINER(content_area),label);
-	gtk_container_add(GTK_CONTAINER(content_area),text_entry);
 	gtk_container_add(GTK_CONTAINER(content_area),button);
-	isServer = 0;
-	//player_color = 1;
-    //player_color = 0;    
+	isServer = 0; 
 	gtk_widget_show_all(dialog);
 }
 
