@@ -6,7 +6,7 @@ static const char* cmd_draw = "DRAW"; static const int make_draw = 3;
 
 // Thạch
 static const char* cmd_pcolor = "PCLR"; static const int make_pcolor = 4;
-static const char* cmd_lose = "LOSE"; static const int make_lose = 5;
+
 typedef struct
 {
 	int cmd;

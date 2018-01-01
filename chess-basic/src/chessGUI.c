@@ -11,16 +11,28 @@
 #include "controller.h"
 
 static gboolean button_pressed(GtkWidget *, GdkEventButton *, GtkLabel *[][8]);
-static void play(GtkWidget *);
+static void play(GtkWidget *, GtkWidget *);
 static void backToMain(GtkWidget *, GtkWidget *);
 static void create_sv(GtkWindow *, gchar *);
 static void connect_sv(GtkWindow *, gchar *);
+static void connect_host(GtkWindow *, gchar *);
 static void updateGUI();
-static void make_Board();
-static void xin_hoa_end_dialog();
-static void xin_hoa_new_dialog();
-static void xin_thua_end_dialog();
-static void xin_thua_new_dialog();
+
+/*Css*/
+GtkCssProvider *provider;
+GdkDisplay *display;
+GdkScreen *screen;
+/*------*/
+static const GdkRGBA green = {0.5899, 0.8867, 0.3906, 1};
+static const GdkRGBA dbrown = {0.8242, 0.5508, 0.2773, 1};
+static const GdkRGBA lbrown = {0.9805, 0.8047, 0.6094, 1};
+GdkColor prevColor;
+GtkWidget *table, *prevEventbox, *hpane, *infogrid, *textview, *scroll_win;
+GtkTextBuffer *buffer;
+GtkTextIter txtiter;
+GtkLabel *currentPlayer, *row_label, *col_label;
+/*container for the labels of the gui board*/
+GtkLabel *labelBoard[8][8];
 
 extern int makemove(int player, int *move, int board[][8]);
 
@@ -35,6 +47,8 @@ int main(int argc, char *argv[]) {
     /*fill the board array with pieces*/
     initBoard(board);
     resetPassantArrays();
+    GtkWidget *window, *eventbox;
+    GtkLabel *label;
     /* Secure glib */
     if( ! g_thread_supported() )
         g_thread_init( NULL );
@@ -46,7 +60,129 @@ int main(int argc, char *argv[]) {
     gdk_threads_enter();
 
     gtk_init(&argc, &argv);
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Chess board");
+    gtk_container_set_border_width(GTK_CONTAINER(window), 5);
+    gtk_widget_set_size_request(window, 680, 350);
+    //table = gtk_grid_new (8,8,TRUE);
+    table = gtk_grid_new();
+    
+    
+    /*one is larger to make the squares wider*/
+    char *pieces[64] = {"♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜",
+                        "♟", "♟", "♟", "♟", "♟", "♟", "♟", "♟",
+                        "", "", "", "", "", "", "", "",
+                        "", "", "", "", "", "", "", "",
+                        "", "", "", "", "", "", "", "",
+                        "", "", "", "", "", "", "", "",
+                        "♙", "♙", "♙", "♙", "♙", "♙", "♙", "♙",
+                        "♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖"};
+    int i, j;
+    int p = 0;
+    int oddCol = 1;
+    int oddRow = 1;
+    for (i = 0; i < 8; i++) {
+        for (j = 0; j < 8; j++) {
+            label = (GtkLabel *) gtk_label_new(pieces[p]);
+            /* set the size of the label to avoid that they are resized when there is no piece in the row */
+            gtk_widget_set_size_request((GtkWidget *) label, 56, 56);
+            /*put the label into the container for easy access when mocing pieces*/
+            labelBoard[i][j] = label;
+            eventbox = gtk_event_box_new();
+            if (oddRow) {
+                if (oddCol) {
+                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &lbrown);
+                    oddCol = 0;
+                } else {
+                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &dbrown);
+                    oddCol = 1;
+                }
+            } else {
+                if (oddCol) {
+                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &dbrown);
+                    oddCol = 0;
+                } else {
+                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &lbrown);
+                    oddCol = 1;
+                }
+            }
+
+            gtk_event_box_set_above_child(GTK_EVENT_BOX(eventbox), FALSE);
+
+            gtk_widget_override_font((GtkWidget *) label, pango_font_description_from_string(
+                    "Serif 36"));
+            /*put label into eventbox*/
+            gtk_container_add(GTK_CONTAINER(eventbox), (GtkWidget *) label);
+            /*put eventbox into table*/
+            gtk_grid_attach((GtkGrid *) table, eventbox, j + 1, i, 1, 1);
+
+
+            g_signal_connect(G_OBJECT(eventbox), "button_press_event",
+                             G_CALLBACK(button_pressed), (gpointer) labelBoard);
+
+            gtk_widget_set_events(eventbox, GDK_BUTTON_PRESS_MASK);
+            /** Dont need widget_realize
+             * connect to a signal that will be called 
+             * after the widget is realized automatically
+             * in g_signal_connect(window)
+             * gtk_widget_realize(eventbox);
+             */
+            p++;
+        }
+        oddRow = !oddRow;
+    }
+
+    /* add square row names */
+    sprintf(mnum, "%s", "`");
+    for (i = 1; i < 9; i++) {
+        mnum[0]++; // mnums first char becomes 'a', then 'b', then 'c' etc.
+        label = (GtkLabel *) gtk_label_new(mnum);
+        gtk_widget_set_size_request((GtkWidget *) label, 0, 30);
+        gtk_grid_attach((GtkGrid *) table, (GtkWidget *) label, i, 9, 1, 1);
+    }
+    i = 8;
+    for (j = 0; j < 8; j++) {
+        sprintf(mnum, "%d", i--);
+        label = (GtkLabel *) gtk_label_new(mnum);
+        gtk_widget_set_size_request((GtkWidget *) label, 30, 0);
+        gtk_grid_attach((GtkGrid *) table, (GtkWidget *) label, 0, j, 1, 1);
+    }
+
+    /*make a horizontal pane*/
+    //hpane = gtk_grid_new(1,2,TRUE);
+    hpane = gtk_grid_new();
+    /*add the table to the horizontal pane*/
+    gtk_grid_attach((GtkGrid *) hpane, table, 0, 0, 1, 1);
+
+    /** create a vertical grid containing game info.
+     * the first  widget is shows the current player
+     * and the second widget is a textview showing last moves
+     */
+    infogrid = gtk_grid_new();
+    textview = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(textview), FALSE);
+    gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(textview), FALSE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(textview), GTK_WRAP_WORD);
+    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(textview));
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(textview), 10);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(textview), 10);
+
+    /** add game info textview to the scroll window
+     * and the scroll window and current player label to infogrid.
+     * Finally add the info grid to the hpane, right of the chess board.
+     */
+    scroll_win = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_size_request(scroll_win, 250, 415);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll_win),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
+    gtk_container_add(GTK_CONTAINER(scroll_win), textview);
+    gtk_grid_attach((GtkGrid *) infogrid, (GtkWidget *) scroll_win, 0, 1, 1, 1);
+    currentPlayer = (GtkLabel *) gtk_label_new("Current player: White");
+    gtk_grid_attach((GtkGrid *) infogrid, (GtkWidget *) currentPlayer, 0, 0, 1, 1);
+    gtk_grid_attach((GtkGrid *) hpane, (GtkWidget *) infogrid, 1, 0, 1, 1);
+
     /* create main window */
+    GtkWidget *window_main;
     GtkBuilder * builder;
     builder = gtk_builder_new();
     gtk_builder_add_from_file (builder,"builder.xml",NULL);
@@ -56,15 +192,12 @@ int main(int argc, char *argv[]) {
 
     //play
     button = gtk_builder_get_object(builder,"btn_play");
-    g_signal_connect(button,"clicked",G_CALLBACK(play),NULL);
+    g_signal_connect(button,"clicked",G_CALLBACK(play),window);
     
     // create server
     button = gtk_builder_get_object(builder,"btn_create_sv");
     g_signal_connect(button,"clicked",G_CALLBACK(create_sv),"da tao server");
 
-    // connect server
-    button = gtk_builder_get_object(builder,"btn_connect_sv");
-    g_signal_connect(button,"clicked",G_CALLBACK(connect_sv),"Nhap IP");
     // Thạch, connect host
     button = gtk_builder_get_object(builder,"btn_connect_host");
     g_signal_connect(button,"clicked",G_CALLBACK(connect_host),"Nhap IP");
@@ -77,7 +210,11 @@ int main(int argc, char *argv[]) {
     button = gtk_builder_get_object(builder,"btn_quit");
     g_signal_connect(button,"clicked",G_CALLBACK(gtk_main_quit),NULL);
 
+    /*add table to window*/
+    gtk_container_add(GTK_CONTAINER(window), hpane);
     gtk_widget_show(window_main);
+    g_signal_connect(G_OBJECT(window), "destroy",
+                             G_CALLBACK(backToMain),window_main);
     //css
     provider = gtk_css_provider_new();
     display = gdk_display_get_default();
@@ -90,7 +227,7 @@ int main(int argc, char *argv[]) {
     g_object_unref (provider);
    
     printf("day la socket %d\n",(int)sockfd );
-    // make_client(window,"127.0.0.1");
+
     gtk_main();
     close(sockfd);
     /* Release gtk's global lock */
@@ -152,12 +289,12 @@ static void connect_host(GtkWindow *parent, gchar *message) {
 
     button = gtk_button_new_with_label("OK");
     g_signal_connect(G_OBJECT(button),"clicked",G_CALLBACK(make_host),gtk_entry_get_text(GTK_ENTRY (text_entry)));
-    gtk_container_add(GTK_CONTAINER(content_area),label);
-    gtk_container_add(GTK_CONTAINER(content_area),text_entry);
-    gtk_container_add(GTK_CONTAINER(content_area),button);
-    isServer = 0;
-    player_color = 1;
-    gtk_widget_show_all(dialog);
+	gtk_container_add(GTK_CONTAINER(content_area),label);
+	gtk_container_add(GTK_CONTAINER(content_area),text_entry);
+	gtk_container_add(GTK_CONTAINER(content_area),button);
+	isServer = 0;
+	player_color = 1;
+	gtk_widget_show_all(dialog);
 }
 
 static void connect_sv(GtkWindow *parent, gchar *message) {
@@ -339,226 +476,4 @@ static gboolean button_pressed(GtkWidget *ebox, GdkEventButton *event,
     }
     return FALSE;
 }
-
-static void make_Board() {
-    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "Chess board");
-    gtk_container_set_border_width(GTK_CONTAINER(window), 5);
-    gtk_widget_set_size_request(window, 680, 350);
-    //table = gtk_grid_new (8,8,TRUE);
-    table = gtk_grid_new();
     
-    
-    /*one is larger to make the squares wider*/
-    char *pieces[64] = {"♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜",
-                        "♟", "♟", "♟", "♟", "♟", "♟", "♟", "♟",
-                        "", "", "", "", "", "", "", "",
-                        "", "", "", "", "", "", "", "",
-                        "", "", "", "", "", "", "", "",
-                        "", "", "", "", "", "", "", "",
-                        "♙", "♙", "♙", "♙", "♙", "♙", "♙", "♙",
-                        "♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖"};
-    int i, j;
-    int p = 0;
-    int oddCol = 1;
-    int oddRow = 1;
-    for (i = 0; i < 8; i++) {
-        for (j = 0; j < 8; j++) {
-            label = (GtkLabel *) gtk_label_new(pieces[p]);
-            /* set the size of the label to avoid that they are resized when there is no piece in the row */
-            gtk_widget_set_size_request((GtkWidget *) label, 56, 56);
-            /*put the label into the container for easy access when mocing pieces*/
-            labelBoard[i][j] = label;
-            eventbox = gtk_event_box_new();
-            if (oddRow) {
-                if (oddCol) {
-                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &lbrown);
-                    oddCol = 0;
-                } else {
-                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &dbrown);
-                    oddCol = 1;
-                }
-            } else {
-                if (oddCol) {
-                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &dbrown);
-                    oddCol = 0;
-                } else {
-                    gtk_widget_override_background_color(eventbox, GTK_STATE_NORMAL, &lbrown);
-                    oddCol = 1;
-                }
-            }
-
-            gtk_event_box_set_above_child(GTK_EVENT_BOX(eventbox), FALSE);
-
-            gtk_widget_override_font((GtkWidget *) label, pango_font_description_from_string(
-                    "Serif 36"));
-            /*put label into eventbox*/
-            gtk_container_add(GTK_CONTAINER(eventbox), (GtkWidget *) label);
-            /*put eventbox into table*/
-            gtk_grid_attach((GtkGrid *) table, eventbox, j + 1, i, 1, 1);
-
-
-            g_signal_connect(G_OBJECT(eventbox), "button_press_event",
-                             G_CALLBACK(button_pressed), (gpointer) labelBoard);
-
-            gtk_widget_set_events(eventbox, GDK_BUTTON_PRESS_MASK);
-            /** Dont need widget_realize
-             * connect to a signal that will be called 
-             * after the widget is realized automatically
-             * in g_signal_connect(window)
-             * gtk_widget_realize(eventbox);
-             */
-            p++;
-        }
-        oddRow = !oddRow;
-    }
-
-    /* add square row names */
-    sprintf(mnum, "%s", "`");
-    for (i = 1; i < 9; i++) {
-        mnum[0]++; // mnums first char becomes 'a', then 'b', then 'c' etc.
-        label = (GtkLabel *) gtk_label_new(mnum);
-        gtk_widget_set_size_request((GtkWidget *) label, 0, 30);
-        gtk_grid_attach((GtkGrid *) table, (GtkWidget *) label, i, 9, 1, 1);
-    }
-    i = 8;
-    for (j = 0; j < 8; j++) {
-        sprintf(mnum, "%d", i--);
-        label = (GtkLabel *) gtk_label_new(mnum);
-        gtk_widget_set_size_request((GtkWidget *) label, 30, 0);
-        gtk_grid_attach((GtkGrid *) table, (GtkWidget *) label, 0, j, 1, 1);
-    }
-
-    /*make a horizontal pane*/
-    //hpane = gtk_grid_new(1,2,TRUE);
-    hpane = gtk_grid_new();
-    /*add the table to the horizontal pane*/
-    gtk_grid_attach((GtkGrid *) hpane, table, 0, 0, 1, 1);
-
-    /** create a vertical grid containing game info.
-     * the first  widget is shows the current player
-     * and the second widget is a textview showing last moves
-     */
-    infogrid = gtk_grid_new();
-    textview = gtk_text_view_new();
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(textview), FALSE);
-    gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(textview), FALSE);
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(textview), GTK_WRAP_WORD);
-    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(textview));
-    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(textview), 10);
-    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(textview), 10);
-
-    /** add game info textview to the scroll window
-     * and the scroll window and current player label to infogrid.
-     * Finally add the info grid to the hpane, right of the chess board.
-     */
-    scroll_win = gtk_scrolled_window_new(NULL, NULL);
-    gtk_widget_set_size_request(scroll_win, 250, 415);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll_win),
-                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
-    gtk_container_add(GTK_CONTAINER(scroll_win), textview);
-    // gtk_grid_attach((GtkGrid *) infogrid, (GtkWidget *) scroll_win, 0, 1, 1, 1);
-    currentPlayer = (GtkLabel *) gtk_label_new("Current player: White");
-    gtk_grid_attach((GtkGrid *) infogrid, (GtkWidget *) currentPlayer, 0, 0, 1, 1);
-    GtkWidget *button;
-    button = gtk_button_new_with_label("DRAW/END");
-    g_signal_connect(G_OBJECT (button),"clicked",G_CALLBACK(xin_hoa_end),NULL);
-    gtk_grid_attach((GtkGrid *) infogrid,(GtkWidget *) button, 0, 2, 1, 1);
-    button = gtk_button_new_with_label("DRAW/NEW");
-    g_signal_connect(G_OBJECT (button),"clicked",G_CALLBACK(xin_hoa_new),NULL);
-    gtk_grid_attach((GtkGrid *) infogrid,(GtkWidget *) button, 0, 4, 1, 1);
-    button = gtk_button_new_with_label("LOSE/END");
-    g_signal_connect(G_OBJECT (button),"clicked",G_CALLBACK(xin_thua_end),NULL);
-    gtk_grid_attach((GtkGrid *) infogrid,(GtkWidget *) button, 0, 5, 1, 1);
-    button = gtk_button_new_with_label("LOSE/NEW");
-    g_signal_connect(G_OBJECT (button),"clicked",G_CALLBACK(xin_thua_new),NULL);
-    gtk_grid_attach((GtkGrid *) infogrid,(GtkWidget *) button, 0, 6, 1, 1);
-
-    gtk_grid_attach((GtkGrid *) hpane, (GtkWidget *) infogrid, 1, 0, 1, 1);
-     /*add table to window*/
-    gtk_container_add(GTK_CONTAINER(window), hpane);
-    g_signal_connect(G_OBJECT(window), "destroy",
-                             G_CALLBACK(backToMain),window_main);
-    gtk_widget_show_all(window);
-
-}
-
-static void xin_hoa_end_dialog(){
-    GtkWidget *dialog, *label, *content_area, *text_entry, *button, *button2;
-    GtkDialogFlags flags;
-    flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;    
-    dialog = gtk_dialog_new_with_buttons("Doi thu xin hoa", window,flags,("_OK"),GTK_RESPONSE_ACCEPT,("_KO"),GTK_RESPONSE_REJECT,NULL);
-    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
-    char temp[10];
-    switch (result)
-    {
-        case GTK_RESPONSE_ACCEPT:
-                strcpy(temp,"DRAW   1");
-                ret = sendto(sockfd, temp, BUF_SIZE, 0, (struct sockaddr *) &addr, sizeof(addr));
-                gtk_widget_destroy(window);
-                backToMain(window,window_main);
-            break;
-        default:
-        printf("ko biet\n");
-            break;
-    }
-    gtk_widget_destroy(dialog);
-}
-
-static void xin_hoa_new_dialog(){
-    GtkWidget *dialog, *label, *content_area, *text_entry, *button, *button2;
-    GtkDialogFlags flags;
-    flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;    
-    dialog = gtk_dialog_new_with_buttons("Xin hoa va choi van moi ?", window,flags,("_OK"),GTK_RESPONSE_ACCEPT,("_KO"),GTK_RESPONSE_REJECT,NULL);
-    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
-    char temp[10];
-    switch (result)
-    {
-        case GTK_RESPONSE_ACCEPT:
-                strcpy(temp,"DRAW   3");
-                ret = sendto(sockfd, temp, BUF_SIZE, 0, (struct sockaddr *) &addr, sizeof(addr));
-                initBoard(board);
-            break;
-        default:
-        printf("ko biet\n");
-            break;
-    }
-    gtk_widget_destroy(dialog);
-}
-
-static void xin_thua_end_dialog(){
-    GtkWidget *dialog, *label, *content_area, *text_entry, *button, *button2;
-    GtkDialogFlags flags;
-    flags = GTK_DIALOG_DESTROY_WITH_PARENT;    
-    dialog = gtk_dialog_new_with_buttons("Doi thu nhan thua", window,flags,("_OK"),GTK_RESPONSE_NONE,NULL);
-    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
-    gtk_widget_destroy(window);
-    backToMain(window,window_main);
-    gtk_widget_destroy(dialog);
-}
-
-static void xin_thua_new_dialog(){
-    GtkWidget *dialog, *label, *content_area, *text_entry, *button, *button2;
-    GtkDialogFlags flags;
-    flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;    
-    dialog = gtk_dialog_new_with_buttons("Xin thua va choi van moi ?", window,flags,("_OK"),GTK_RESPONSE_ACCEPT,("_KO"),GTK_RESPONSE_REJECT,NULL);
-    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
-    char temp[10];
-    switch (result)
-    {
-        case GTK_RESPONSE_ACCEPT:
-                strcpy(temp,"LOSE   2");
-                ret = sendto(sockfd, temp, BUF_SIZE, 0, (struct sockaddr *) &addr, sizeof(addr));
-                initBoard(board);
-                 drawGuiBoard(labelBoard, board);
-            break;
-        default:
-                strcpy(temp,"LOSE   3");
-                ret = sendto(sockfd, temp, BUF_SIZE, 0, (struct sockaddr *) &addr, sizeof(addr));
-        printf("ko biet\n");
-                gtk_widget_destroy(window);
-                backToMain(window,window_main);
-            break;
-    }
-    gtk_widget_destroy(dialog);
-}

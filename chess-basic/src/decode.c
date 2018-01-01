@@ -19,15 +19,5 @@ decoded getresults(char *code)
 		temp.cmd = make_pcolor;
 		strcpy(temp.var, varible);
 	}
-	else if(!strcmp(header,cmd_draw))
-	{
-		temp.cmd = make_draw;
-		strcpy(temp.var, varible);	
-	}
-	else if(!strcmp(header,cmd_lose))
-	{
-		temp.cmd = make_lose;
-		strcpy(temp.var, varible);	
-	}
 	return temp;
 }
